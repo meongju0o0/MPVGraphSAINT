@@ -5,8 +5,9 @@ import warnings
 
 import torch
 import torch.nn.functional as F
+import dgl
 from config import CONFIG
-from modules import GCNNet
+from modules import SimpleAGG, GCNNet
 from sampler import SAINTEdgeSampler, SAINTNodeSampler, SAINTRandomWalkSampler
 from torch.utils.data import DataLoader
 from utils import calc_f1, evaluate, load_data, Logger, save_log_dir
@@ -45,6 +46,9 @@ def main(args, task):
     n_train_samples = train_mask.int().sum().item()
     n_val_samples = val_mask.int().sum().item()
     n_test_samples = test_mask.int().sum().item()
+
+    g.ndata["ones"] = torch.ones(g.num_nodes(), dtype=torch.float)
+    g.ndata["mpv"] = torch.ones(g.num_nodes(), dtype=torch.float)
 
     print(
         """----Data statistics------'
@@ -87,6 +91,7 @@ def main(args, task):
         )
     else:
         raise NotImplementedError
+
     loader = DataLoader(
         saint_sampler,
         collate_fn=saint_sampler.__collate_fn__,
@@ -95,16 +100,26 @@ def main(args, task):
         num_workers=args.num_workers,
         drop_last=False,
     )
+
+    mpv_loader = dgl.dataloading.DataLoader(
+        g,
+        indices=train_nid,
+        graph_sampler=dgl.dataloading.NeighborSampler([-1], mask=None),
+        batch_size=args.num_roots
+    )
+
     # set device for dataset tensors
     if args.gpu < 0:
         cuda = False
+        device = torch.device('cpu')
     else:
         cuda = True
+        device = torch.device('cuda:{}'.format(args.gpu))
         torch.cuda.set_device(args.gpu)
         val_mask = val_mask.cuda()
         test_mask = test_mask.cuda()
         if not cpu_flag:
-            g = g.to("cuda:{}".format(args.gpu))
+            g = g.to(device)
 
     print("labels shape:", g.ndata["label"].shape)
     print("features shape:", g.ndata["feat"].shape)
@@ -119,8 +134,15 @@ def main(args, task):
         aggr=args.aggr,
     )
 
+    mpv_model = SimpleAGG(num_hop=2)
+
     if cuda:
         model.cuda()
+
+    for block in mpv_loader:
+        block.to(device)
+        mpv = mpv_model(block, g.ndata["ones"])
+        print(mpv)
 
     # logger and so on
     log_dir = save_log_dir(args)
@@ -143,7 +165,7 @@ def main(args, task):
     for epoch in range(args.n_epochs):
         for j, subg in enumerate(loader):
             if cuda:
-                subg = subg.to(torch.cuda.current_device())
+                subg = subg.to(device)
             model.train()
             # forward
             pred = model(subg)
@@ -191,7 +213,7 @@ def main(args, task):
             ):  # Only when we have shifted model to gpu and we need to shift it back on cpu
                 model = model.to("cpu")
             val_f1_mic, val_f1_mac = evaluate(
-                model, g, labels, val_mask, multilabel
+                model, g, labels.to("cpu"), val_mask.to("cpu"), multilabel
             )
             print(
                 "Val F1-mic {:.4f}, Val F1-mac {:.4f}".format(
@@ -218,7 +240,7 @@ def main(args, task):
         )
     if cpu_flag and cuda:
         model = model.to("cpu")
-    test_f1_mic, test_f1_mac = evaluate(model, g, labels, test_mask, multilabel)
+    test_f1_mic, test_f1_mac = evaluate(model, g, labels.to("cpu"), test_mask.to("cpu"), multilabel)
     print(
         "Test F1-mic {:.4f}, Test F1-mac {:.4f}".format(
             test_f1_mic, test_f1_mac

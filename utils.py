@@ -1,6 +1,6 @@
 import json
 import os
-from functools import namedtuple
+from collections import namedtuple
 
 import dgl
 
@@ -62,10 +62,8 @@ def evaluate(model, g, labels, mask, multilabel=False):
 
 # load data of GraphSAINT and convert them to the format of dgl
 def load_data(args, multilabel):
-    if not os.path.exists("graphsaintdata") and not os.path.exists("data"):
-        raise ValueError("The directory graphsaintdata does not exist!")
-    elif os.path.exists("graphsaintdata") and not os.path.exists("data"):
-        os.rename("graphsaintdata", "data")
+    if not os.path.exists("data"):
+        raise ValueError("The directory data does not exist!")
     prefix = "data/{}".format(args.dataset)
     DataType = namedtuple("Dataset", ["num_classes", "train_nid", "g"])
 
@@ -112,6 +110,7 @@ def load_data(args, multilabel):
     g.ndata["label"] = torch.tensor(
         class_arr, dtype=torch.float if multilabel else torch.long
     )
+
     g.ndata["train_mask"] = torch.tensor(train_mask, dtype=torch.bool)
     g.ndata["val_mask"] = torch.tensor(val_mask, dtype=torch.bool)
     g.ndata["test_mask"] = torch.tensor(test_mask, dtype=torch.bool)
