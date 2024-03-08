@@ -70,13 +70,14 @@ def load_data(args, multilabel):
     adj_full = scipy.sparse.load_npz("./{}/adj_full.npz".format(prefix)).astype(
         np.bool_
     )
-    g = dgl.from_scipy(adj_full)
+    g = dgl.from_scipy(adj_full, idtype=torch.int64)
     num_nodes = g.num_nodes()
 
     adj_train = scipy.sparse.load_npz(
         "./{}/adj_train.npz".format(prefix)
     ).astype(np.bool_)
-    train_nid = np.array(list(set(adj_train.nonzero()[0])))
+
+    train_nid = np.array(list(set(adj_train.nonzero()[0])), dtype=np.int64)
 
     role = json.load(open("./{}/role.json".format(prefix)))
     mask = np.zeros((num_nodes,), dtype=bool)

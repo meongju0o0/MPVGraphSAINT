@@ -103,9 +103,11 @@ def main(args, task):
 
     mpv_loader = dgl.dataloading.DataLoader(
         g,
-        indices=train_nid,
-        graph_sampler=dgl.dataloading.NeighborSampler([-1], mask=None),
-        batch_size=args.num_roots
+        indices=torch.from_numpy(train_nid),
+        graph_sampler=dgl.dataloading.NeighborSampler([-1, -1]),
+        batch_size=1024,
+        shuffle=False,
+        drop_last=False,
     )
 
     # set device for dataset tensors
@@ -139,11 +141,6 @@ def main(args, task):
     if cuda:
         model.cuda()
 
-    for block in mpv_loader:
-        block.to(device)
-        mpv = mpv_model(block, g.ndata["ones"])
-        print(mpv)
-
     # logger and so on
     log_dir = save_log_dir(args)
     logger = Logger(os.path.join(log_dir, "loggings"))
@@ -161,6 +158,11 @@ def main(args, task):
         )
     start_time = time.time()
     best_f1 = -1
+
+    for input_nodes, output_nodes, blocks in mpv_loader:
+        blocks = [block.to(device) for block in blocks]
+        mpv = mpv_model(blocks, g.ndata["ones"])
+        print(mpv)
 
     for epoch in range(args.n_epochs):
         for j, subg in enumerate(loader):
